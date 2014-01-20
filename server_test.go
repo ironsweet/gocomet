@@ -1,0 +1,5 @@
+package gocomet
+
+// import (
+// 	"testing"
+// )
