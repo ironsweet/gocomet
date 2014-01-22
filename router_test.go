@@ -57,8 +57,9 @@ func TestWildcardRule2(t *testing.T) {
 func TestDuplicateRule(t *testing.T) {
 	r := newRouter()
 	id := "client1"
-	r.add("/foo/bar", id)
-	r.add("/foo/bar", id)
+	rule1 := r.add("/foo/bar", id)
+	rule2 := r.add("/foo/bar", id)
+	assert(rule1 == rule2, t, "duplicate rules should be identical")
 	res := r.run("/foo/bar")
 	assert(len(res) == 1 && res[0] == id, t, "not allow duplicate rules")
 	r.add("/foo/*", id)

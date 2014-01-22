@@ -23,14 +23,14 @@ type Router struct {
 	parent   *Router
 	prefix   string
 	children map[string]*Router
-	rules    map[string]map[*Rule]bool
+	rules    map[string]map[string]*Rule
 }
 
 func newRouter() *Router {
 	return &Router{
 		RWMutex:  &sync.RWMutex{},
 		children: make(map[string]*Router),
-		rules:    make(map[string]map[*Rule]bool),
+		rules:    make(map[string]map[string]*Rule),
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *Router) moveSimpleRulesMatching(prefix string, r2 *Router) (candidates 
 	pos := len(prefix)
 	for rp, rules := range r.rules {
 		if strings.HasPrefix(rp, prefix) {
-			for rule, _ := range rules {
+			for _, rule := range rules {
 				r2.add(rp[pos:], rule.id)
 			}
 			candidates = append(candidates, rp)
@@ -88,19 +88,21 @@ func (r *Router) removeRules(rules []string) {
 }
 
 func (r *Router) addSimpleRule(path, id string) (rule *Rule) {
+	r.Lock()
+	defer r.Unlock()
+
+	if r.rules[path] == nil {
+		r.rules[path] = make(map[string]*Rule)
+	}
+	if rule, ok := r.rules[path][id]; ok {
+		return rule
+	}
 	rule = &Rule{
 		router: r,
 		path:   path,
 		id:     id,
 	}
-
-	r.Lock()
-	defer r.Unlock()
-
-	if r.rules[path] == nil {
-		r.rules[path] = make(map[*Rule]bool)
-	}
-	r.rules[path][rule] = true
+	r.rules[path][id] = rule
 	return
 }
 
@@ -129,7 +131,7 @@ func (r *Router) collectRules(matches []string, patt string) []string {
 	defer r.RUnlock()
 
 	if rules, ok := r.rules[patt]; ok {
-		for rule, _ := range rules {
+		for _, rule := range rules {
 			matches = append(matches, rule.id)
 		}
 	}
@@ -142,7 +144,7 @@ func (r *Router) removeRule(rule *Rule) {
 
 	if rules, ok := r.rules[rule.path]; ok {
 		// remove rule from its router
-		delete(rules, rule)
+		delete(rules, rule.id)
 	}
 }
 
@@ -159,8 +161,8 @@ func (r *Router) minify() {
 	// merge current router to its parent
 	if parent != nil {
 		for _, rules := range r.rules {
-			for rule, _ := range rules {
-				parent.add(r.prefix+rule.path, rule.id)
+			for path, rule := range rules {
+				parent.add(r.prefix+path, rule.id)
 				rule.router = nil // ease GC work
 			}
 		}
