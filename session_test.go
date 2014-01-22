@@ -32,9 +32,13 @@ func simple(stopSignal chan bool) {
 	<-stopSignal
 }
 
-func assert(ok bool, t *testing.T, msg string) {
+func assert(ok bool, t *testing.T, format string, args ...interface{}) {
 	if !ok {
-		t.Error(msg)
+		if len(args) == 0 {
+			t.Error(format)
+		} else {
+			t.Errorf(format, args...)
+		}
 	}
 }
 
