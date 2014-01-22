@@ -79,6 +79,6 @@ func TestRemoveRule(t *testing.T) {
 	}
 	res := r.run("/foo")
 	assert(len(res) == 1 && res[0] == id, t, "failed to match")
-	assert(rule.remove() == nil, t, "failed to remove rule")
+	rule.remove()
 	assert(len(r.run("/foo")) == 0, t, "no matching rule now")
 }

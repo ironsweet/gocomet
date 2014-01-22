@@ -3,7 +3,6 @@ package gocomet
 import (
 	"bytes"
 	"container/list"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -38,56 +37,80 @@ func newRouter() *Router {
 func (r *Router) add(path, id string) *Rule {
 	if pos := strings.Index(path, "*"); pos > 0 { // wildcard rule
 		prefix, part := path[:pos], path[pos:]
-		r2, ok := r.children[prefix]
-		if !ok { // create a new child router
-			r2 = newRouter()
-			r2.parent = r
-			r2.prefix = prefix
-			r.children[prefix] = r2
 
-			// move simple rules that match the prefix to child router
-			var candidates []string
-			for rp, rules := range r.rules {
-				if strings.HasPrefix(rp, prefix) {
-					for rule, _ := range rules {
-						r2.add(rp[pos:], rule.id)
-					}
-					candidates = append(candidates, rp)
-				}
-			}
-
-			// remove them from the current router
-			for _, candidate := range candidates {
-				delete(r.rules, candidate)
-			}
+		r2, exists := r.obtainSubRouter(prefix)
+		if !exists {
+			candidates := r.moveSimpleRulesMatching(prefix, r2)
+			r2.removeRules(candidates)
 		}
 		return r2.add(part, id)
 	}
-	// simple rule
-	rule := &Rule{
+	return r.addSimpleRule(path, id)
+}
+
+func (r *Router) obtainSubRouter(prefix string) (r2 *Router, ok bool) {
+	r.Lock()
+	defer r.Unlock()
+
+	r2, ok = r.children[prefix]
+	if !ok { // create a new child router
+		r2 = newRouter()
+		r2.parent = r
+		r2.prefix = prefix
+		r.children[prefix] = r2
+	}
+	return
+}
+
+func (r *Router) moveSimpleRulesMatching(prefix string, r2 *Router) (candidates []string) {
+	r.RLock()
+	defer r.RUnlock()
+
+	pos := len(prefix)
+	for rp, rules := range r.rules {
+		if strings.HasPrefix(rp, prefix) {
+			for rule, _ := range rules {
+				r2.add(rp[pos:], rule.id)
+			}
+			candidates = append(candidates, rp)
+		}
+	}
+	return
+}
+
+func (r *Router) removeRules(rules []string) {
+	r.Lock()
+	defer r.Unlock()
+
+	for _, rule := range rules {
+		delete(r.rules, rule)
+	}
+}
+
+func (r *Router) addSimpleRule(path, id string) (rule *Rule) {
+	rule = &Rule{
 		router: r,
 		path:   path,
 		id:     id,
 	}
+
+	r.Lock()
+	defer r.Unlock()
+
 	if r.rules[path] == nil {
 		r.rules[path] = make(map[*Rule]bool)
 	}
 	r.rules[path][rule] = true
-	return rule
+	return
 }
 
 func (r *Router) run(path string) (matches []string) {
-	if rules, ok := r.rules[path]; ok { // match simple rules
-		matches = collect(matches, rules)
-	}
+	matches = r.collectRules(matches, path)
 	if !strings.Contains(path, "/") { // try wildcard match
-		if rules, ok := r.rules["*"]; ok {
-			matches = collect(matches, rules)
-		}
+		matches = r.collectRules(matches, "*")
 	}
-	if rules, ok := r.rules["**"]; ok {
-		matches = collect(matches, rules)
-	}
+	matches = r.collectRules(matches, "**")
+
 	if len(matches) == 0 { // try sub routers
 		for prefix, r2 := range r.children {
 			if strings.HasPrefix(path, prefix) {
@@ -101,11 +124,70 @@ func (r *Router) run(path string) (matches []string) {
 	return
 }
 
-func collect(matches []string, rules map[*Rule]bool) []string {
-	for rule, _ := range rules {
-		matches = append(matches, rule.id)
+func (r *Router) collectRules(matches []string, patt string) []string {
+	r.RLock()
+	defer r.RUnlock()
+
+	if rules, ok := r.rules[patt]; ok {
+		for rule, _ := range rules {
+			matches = append(matches, rule.id)
+		}
 	}
 	return matches
+}
+
+func (r *Router) removeRule(rule *Rule) {
+	r.Lock()
+	defer r.Unlock()
+
+	if rules, ok := r.rules[rule.path]; ok {
+		// remove rule from its router
+		delete(rules, rule)
+	}
+}
+
+func (r *Router) minify() {
+	parent := r.parent
+	if r.hasSubRouters() || r.hasWildcardRules() || parent == nil {
+		return
+	}
+
+	r.Lock()
+	defer r.Unlock()
+
+	// if no child router and no other wildcard rule,
+	// merge current router to its parent
+	if parent != nil {
+		for _, rules := range r.rules {
+			for rule, _ := range rules {
+				parent.add(r.prefix+rule.path, rule.id)
+				rule.router = nil // ease GC work
+			}
+		}
+		parent.removeSubRouter(r.prefix)
+	}
+}
+
+func (r *Router) hasSubRouters() bool {
+	r.RLock()
+	defer r.RUnlock()
+	return len(r.children) > 0
+}
+
+func (r *Router) hasWildcardRules() bool {
+	r.RLock()
+	defer r.RUnlock()
+	_, ok := r.rules["*"]
+	if !ok {
+		_, ok = r.rules["**"]
+	}
+	return ok
+}
+
+func (r *Router) removeSubRouter(prefix string) {
+	r.Lock()
+	defer r.Unlock()
+	delete(r.children, prefix)
 }
 
 func (r *Router) String() string {
@@ -115,6 +197,9 @@ func (r *Router) String() string {
 }
 
 func (r *Router) toString(buf *bytes.Buffer, tabSize int) {
+	r.RLock()
+	defer r.RUnlock()
+
 	tab := makeTab(tabSize)
 	buf.WriteString("Router(\n")
 	for part, _ := range r.rules {
@@ -142,37 +227,12 @@ type Rule struct {
 	id     string
 }
 
-func (rule *Rule) remove() error {
-	rules, ok := rule.router.rules[rule.path]
-	if ok {
-		_, ok = rules[rule]
+func (rule *Rule) remove() {
+	rule.router.removeRule(rule)
+	if strings.HasPrefix(rule.path, "*") {
+		// minify the router table if wildcard rule is removed
+		rule.router.minify()
 	}
-	if !ok {
-		return errors.New(fmt.Sprintf("Rule '%v' is not found.", rule))
-	}
-	// remove rule from its router
-	delete(rules, rule)
-
-	if len(rule.router.children) > 0 {
-		return nil // skip if has child router
-	}
-	for r, _ := range rules {
-		if strings.HasPrefix(r.path, "*") {
-			return nil // skip if has other wildcard rule
-		}
-	}
-
-	// if no child router and no other wildcard rule,
-	// merge current router to its parent
-	parent := rule.router.parent
-	if parent != nil {
-		for r, _ := range rules {
-			parent.add(rule.router.prefix+r.path, rule.id)
-			r.router = nil // ease GC work
-		}
-		delete(parent.children, rule.router.prefix)
-	}
-	return nil
 }
 
 func (rule *Rule) String() string {
