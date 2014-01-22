@@ -11,14 +11,13 @@ import (
 
 /*
 A simple router that accepts mutiple matching rules, responds to path
-query, and execute registered callback.
+query, and returns the matching client IDs.
 
 Internally, it uses a Trie to do path matching. Adding or removing
 rule will change the internal Trie structure. The lookup efficiency
 is proportional to the approximte number of path segments.
 
-Note: it's thread-safe and can be shared in different goroutines. But
-the callback should not hold CPU for too long.
+Note: it's thread-safe and can be shared in different goroutines.
 */
 type Router struct {
 	*sync.RWMutex
@@ -36,7 +35,7 @@ func newRouter() *Router {
 	}
 }
 
-func (r *Router) add(path string, callback func(string)) *Rule {
+func (r *Router) add(path, id string) *Rule {
 	if pos := strings.Index(path, "*"); pos > 0 { // wildcard rule
 		prefix, part := path[:pos], path[pos:]
 		r2, ok := r.children[prefix]
@@ -51,7 +50,7 @@ func (r *Router) add(path string, callback func(string)) *Rule {
 			for rp, rules := range r.rules {
 				if strings.HasPrefix(rp, prefix) {
 					for rule, _ := range rules {
-						r2.add(rp[pos:], rule.callback)
+						r2.add(rp[pos:], rule.id)
 					}
 					candidates = append(candidates, rp)
 				}
@@ -62,13 +61,13 @@ func (r *Router) add(path string, callback func(string)) *Rule {
 				delete(r.rules, candidate)
 			}
 		}
-		return r2.add(part, callback)
+		return r2.add(part, id)
 	}
 	// simple rule
 	rule := &Rule{
-		router:   r,
-		path:     path,
-		callback: callback,
+		router: r,
+		path:   path,
+		id:     id,
 	}
 	if r.rules[path] == nil {
 		r.rules[path] = make(map[*Rule]bool)
@@ -77,40 +76,36 @@ func (r *Router) add(path string, callback func(string)) *Rule {
 	return rule
 }
 
-func (r *Router) run(path string) bool {
-	return r.runStep(path, path)
-}
-
-func (r *Router) runStep(path, originalPath string) (matched bool) {
+func (r *Router) run(path string) (matches []string) {
 	if rules, ok := r.rules[path]; ok { // match simple rules
-		matched = true
-		invokeAll(rules, originalPath)
+		matches = collect(matches, rules)
 	}
 	if !strings.Contains(path, "/") { // try wildcard match
 		if rules, ok := r.rules["*"]; ok {
-			matched = true
-			invokeAll(rules, originalPath)
+			matches = collect(matches, rules)
 		}
 	}
 	if rules, ok := r.rules["**"]; ok {
-		matched = true
-		invokeAll(rules, originalPath)
+		matches = collect(matches, rules)
 	}
-	if !matched { // try sub routers
+	if len(matches) == 0 { // try sub routers
 		for prefix, r2 := range r.children {
-			if strings.HasPrefix(path, prefix) && r2.runStep(path[len(prefix):], originalPath) {
-				matched = true
-				break
+			if strings.HasPrefix(path, prefix) {
+				matches = r2.run(path[len(prefix):])
+				if len(matches) > 0 {
+					break
+				}
 			}
 		}
 	}
 	return
 }
 
-func invokeAll(rules map[*Rule]bool, path string) {
+func collect(matches []string, rules map[*Rule]bool) []string {
 	for rule, _ := range rules {
-		rule.callback(path)
+		matches = append(matches, rule.id)
 	}
+	return matches
 }
 
 func (r *Router) String() string {
@@ -142,9 +137,9 @@ func makeTab(tabSize int) string {
 }
 
 type Rule struct {
-	router   *Router
-	path     string
-	callback func(string)
+	router *Router
+	path   string
+	id     string
 }
 
 func (rule *Rule) remove() error {
@@ -172,7 +167,7 @@ func (rule *Rule) remove() error {
 	parent := rule.router.parent
 	if parent != nil {
 		for r, _ := range rules {
-			parent.add(rule.router.prefix+r.path, rule.callback)
+			parent.add(rule.router.prefix+r.path, rule.id)
 			r.router = nil // ease GC work
 		}
 		delete(parent.children, rule.router.prefix)
