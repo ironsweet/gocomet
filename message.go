@@ -1,12 +1,17 @@
 package gocomet
 
 import (
+	"fmt"
 	"sync"
 )
 
-type SimpleMessage struct {
+type Message struct {
 	channel string
 	data    string
+}
+
+func (msg *Message) String() string {
+	return fmt.Sprintf("@%v: %v", msg.channel, msg.data)
 }
 
 /*
@@ -15,7 +20,7 @@ through subscribed channels.
 */
 type Broker struct {
 	*sync.RWMutex
-	clients map[string]chan *SimpleMessage
+	clients map[string]chan *Message
 	router  *Router
 	rules   map[string]map[string]*Rule
 }
@@ -26,7 +31,7 @@ Creates a message broker instance.
 func newBroker() *Broker {
 	return &Broker{
 		RWMutex: &sync.RWMutex{},
-		clients: make(map[string]chan *SimpleMessage),
+		clients: make(map[string]chan *Message),
 		router:  newRouter(),
 		rules:   make(map[string]map[string]*Rule),
 	}
@@ -35,13 +40,13 @@ func newBroker() *Broker {
 /*
 Register a new client and obtain its designated channel.
 */
-func (b *Broker) register(clientId string) chan *SimpleMessage {
+func (b *Broker) register(clientId string) chan *Message {
 	b.Lock()
 	defer b.Unlock()
 
 	ch, ok := b.clients[clientId]
 	if !ok {
-		ch = make(chan *SimpleMessage)
+		ch = make(chan *Message)
 		b.clients[clientId] = ch
 		b.rules[clientId] = make(map[string]*Rule)
 	}
@@ -90,9 +95,9 @@ func (b *Broker) hasClient(clientId string) (ok bool) {
 Unsubscribe the client from the channel. After that, the future
 messages or pending messages are ceased.
 */
-func (b *Broker) unsubscribe(clientId, channel string) {
+func (b *Broker) unsubscribe(clientId, channel string) bool {
 	if !b.hasClient(clientId) {
-		return // client ID not exists
+		return false // client ID not exists
 	}
 
 	b.Lock()
@@ -101,8 +106,9 @@ func (b *Broker) unsubscribe(clientId, channel string) {
 	if rule, ok := b.rules[clientId][channel]; ok {
 		rule.remove()
 		delete(b.rules[clientId], channel)
+		return true
 	}
-
+	return false
 }
 
 /*
@@ -114,11 +120,11 @@ guarrantee message delivery though.
 */
 func (b *Broker) broadcast(channel, msg string) {
 	for _, c := range b.router.run(channel) {
-		b.send(c, &SimpleMessage{channel, msg})
+		b.send(c, &Message{channel, msg})
 	}
 }
 
-func (b *Broker) send(client string, msg *SimpleMessage) {
+func (b *Broker) send(client string, msg *Message) {
 	b.RLock()
 	ch := b.clients[client]
 	b.RUnlock()

@@ -12,10 +12,16 @@ func TestClientLifeCycle(t *testing.T) {
 	assert(!ok, t, "channel should be closed after deregister")
 }
 
+func assert(ok bool, t *testing.T, format string, args ...interface{}) {
+	if !ok {
+		t.Errorf(format, args...)
+	}
+}
+
 func TestMessageBroadcast(t *testing.T) {
 	b := newBroker()
 	ch := b.register("client")
-	var msg *SimpleMessage
+	var msg *Message
 	go func() {
 		msg = <-ch
 	}()
@@ -30,7 +36,7 @@ func TestChannelUnsubscribe(t *testing.T) {
 	b := newBroker()
 	clientId := "client"
 	ch := b.register(clientId)
-	var msg *SimpleMessage
+	var msg *Message
 	go func() {
 		msg = <-ch
 	}()
