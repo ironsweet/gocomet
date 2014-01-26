@@ -34,6 +34,9 @@ func newRouter() *Router {
 	}
 }
 
+/*
+Add a new router rule into the table.
+*/
 func (r *Router) add(path, id string) *Rule {
 	if pos := strings.Index(path, "*"); pos > 0 { // wildcard rule
 		prefix, part := path[:pos], path[pos:]
@@ -106,6 +109,9 @@ func (r *Router) addSimpleRule(path, id string) (rule *Rule) {
 	return
 }
 
+/*
+Run the router to obtain a list of matched IDs.
+*/
 func (r *Router) run(path string) (matches []string) {
 	matches = r.collectRules(matches, path)
 	if !strings.Contains(path, "/") { // try wildcard match
