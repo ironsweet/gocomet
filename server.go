@@ -142,6 +142,6 @@ func (c *Server) closeAndReturn(clientId string, msg *Message) {
 	defer c.RUnlock()
 
 	if ss, ok := c.sessions[clientId]; ok {
-		ss.channelFail <- msg
+		ss.channelTimeout <- msg
 	}
 }

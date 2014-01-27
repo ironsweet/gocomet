@@ -79,10 +79,10 @@ const MAX_SESSION_IDEL = 10 * time.Minute
 const MAILBOX_SIZE = 1000
 
 type Session struct {
-	channelReq   chan bool
-	channelResp  chan chan *Message
-	channelFail  chan *Message
-	channelClose chan bool
+	channelReq     chan bool
+	channelResp    chan chan *Message
+	channelTimeout chan *Message
+	channelClose   chan bool
 }
 
 var closedChannel chan *Message = func() chan *Message {
@@ -94,11 +94,10 @@ var closedChannel chan *Message = func() chan *Message {
 func newSession(input chan *Message, cleanup func()) *Session {
 	channelReq := make(chan bool)
 	channelResp := make(chan chan *Message)
-	channelFail := make(chan *Message)
+	channelTimeout := make(chan *Message)
 	channelClose := make(chan bool)
 
 	go func() {
-		var isConnected, isConnect bool
 		var mailbox *list.List = list.New()
 		var output chan *Message
 		var isRunning = true
@@ -123,43 +122,36 @@ func newSession(input chan *Message, cleanup func()) *Session {
 					}
 					output <- msg
 				}
-			case b := <-channelReq:
-				if !isConnected {
+			case isConnect := <-channelReq:
+				if output == nil {
 					// no existing active channel
-					isConnected = true
-					isConnect = b
-					// try re-send the messages by using a large size channel
-					output = make(chan *Message, mailbox.Len())
+					// try queueing the messages by using a large size channel
+					ch := make(chan *Message, mailbox.Len())
 					if mailbox.Len() > 0 {
 						for e := mailbox.Front(); e != nil; e = e.Next() {
 							if e.Value == nil {
 								panic("message should not be nil")
 							}
-							output <- e.Value.(*Message)
+							ch <- e.Value.(*Message)
 						}
 						mailbox.Init()
 					}
-					channelResp <- output
-				} else if !isConnect && b {
-					// override existing non-connect active channel
-					isConnect = true
-					close(output)
-					output = make(chan *Message)
-					channelResp <- output
+					channelResp <- ch
+					if isConnect {
+						output = ch
+					}
 				} else {
 					// active connect channel already exists
 					channelResp <- closedChannel
 				}
-			case msg := <-channelFail:
+			case msg := <-channelTimeout:
 				if msg != nil {
 					mailbox.PushFront(msg)
 				}
-				isConnected = false
 				close(output)
 				output = nil
 			case <-channelClose:
 				isRunning = false
-				isConnected = false
 				close(output)
 				output = nil
 				if mailbox.Len() > 0 {
@@ -178,7 +170,6 @@ func newSession(input chan *Message, cleanup func()) *Session {
 				}
 			case <-time.After(MAX_SESSION_IDEL):
 				isRunning = false
-				isConnected = false
 				close(output)
 				output = nil
 			}
@@ -188,10 +179,10 @@ func newSession(input chan *Message, cleanup func()) *Session {
 	}()
 
 	return &Session{
-		channelReq:   channelReq,
-		channelResp:  channelResp,
-		channelFail:  channelFail,
-		channelClose: channelClose,
+		channelReq:     channelReq,
+		channelResp:    channelResp,
+		channelTimeout: channelTimeout,
+		channelClose:   channelClose,
 	}
 }
 
