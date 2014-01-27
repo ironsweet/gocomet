@@ -109,13 +109,8 @@ func newSession(input chan *Message, cleanup func()) *Session {
 			// 3. close downstream channel and push back message; and
 			// 4. auto-disconnect those clients that exceed max idel time.
 			select {
-			case msg, ok := <-input:
-				if !ok { // upstream channel is closed
-					isRunning = false
-					isConnected = false
-					close(output)
-					output = nil
-				} else if output == nil { // no downstream channel
+			case msg := <-input:
+				if output == nil { // no downstream channel
 					// log.Printf("Saved message: %v", msg)
 					mailbox.PushBack(msg)
 					if mailbox.Len() > MAILBOX_SIZE {
