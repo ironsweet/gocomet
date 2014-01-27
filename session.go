@@ -10,8 +10,8 @@ import (
 // Maximum number of retry to avoid conflict
 const MAX_ID_GEN_RETRY = 100
 
-// Maximum number of IDs to kept to avoid conflict
-const MAX_ID_KEPT_TIME = 10 * time.Minute
+// Maximum time to keep IDs from being auto-released
+const MAX_ID_KEPT_TIME = 30 * time.Minute
 
 type timeAndValue struct {
 	value  interface{}
@@ -70,7 +70,7 @@ func (pool *UniqueStringPool) touch(value string) (ok bool) {
 	return
 }
 
-// Maximum allowed session idele. After that, the session is
+// Maximum allowed session idel. After that, the session is
 // considered as disconnected.
 const MAX_SESSION_IDEL = 10 * time.Minute
 
