@@ -3,6 +3,7 @@ package gocomet
 import (
 	"container/list"
 	"errors"
+	"log"
 	"sync"
 	"time"
 )
@@ -72,7 +73,7 @@ func (pool *UniqueStringPool) touch(value string) (ok bool) {
 
 // Maximum allowed session idel. After that, the session is
 // considered as disconnected.
-const MAX_SESSION_IDEL = 10 * time.Minute
+const MAX_SESSION_IDEL time.Duration = 1 * time.Minute
 
 // The unsent messages are kept temporarily in a mailbox. But only
 // last MAILBOX_SIZE messages are kept.
@@ -91,7 +92,7 @@ var closedChannel chan *Message = func() chan *Message {
 	return ch
 }()
 
-func newSession(input chan *Message, cleanup func()) *Session {
+func newSession(id string, input chan *Message, cleanup func()) *Session {
 	channelReq := make(chan bool)
 	channelResp := make(chan chan *Message)
 	channelTimeout := make(chan *Message)
@@ -110,13 +111,13 @@ func newSession(input chan *Message, cleanup func()) *Session {
 			select {
 			case msg := <-input:
 				if output == nil { // no downstream channel
-					// log.Printf("Saved message: %v", msg)
+					log.Printf("[%8.8v]Saved message: %v", id, msg)
 					mailbox.PushBack(msg)
 					if mailbox.Len() > MAILBOX_SIZE {
 						mailbox.Remove(mailbox.Front())
 					}
 				} else {
-					// log.Printf("Received message: %v", msg)
+					log.Printf("[%8.8v]Received message: %v", id, msg)
 					if msg == nil {
 						panic("message should not be nil")
 					}

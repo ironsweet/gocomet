@@ -2,6 +2,7 @@ package gocomet
 
 import (
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -119,7 +120,9 @@ strategy, like message ordering or persistence. The broker doesn't
 guarrantee message delivery though.
 */
 func (b *Broker) broadcast(channel, msg string) {
-	for _, c := range b.router.run(channel) {
+	targets := b.router.run(channel)
+	log.Printf("[Broker]Broadcast to %v clients.", len(targets))
+	for _, c := range targets {
 		b.send(c, &Message{channel, msg})
 	}
 }

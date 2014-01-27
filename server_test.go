@@ -90,6 +90,7 @@ func TestPublish(t *testing.T) {
 	var msg string
 	go func() { msg = (<-ch).data }()
 	s.publish(c1, "/foo/bar", "ping")
+	runtime.Gosched()
 	assert(msg == "ping", t, "failed to receive the delivered message")
 }
 
@@ -105,7 +106,6 @@ func TestWhisper(t *testing.T) {
 	s.subscribe(c1, "/foo/bar")
 	s.whisper("/foo/bar", "ping")
 	runtime.Gosched() // give msg receiver a chance
-	runtime.Gosched()
 	assert(msg == "ping", t, "failed to receive whipered message (got %v)", msg)
 }
 

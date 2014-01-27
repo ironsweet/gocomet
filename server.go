@@ -50,7 +50,7 @@ func (c *Server) connect(clientId string) (ch chan *Message, ok bool) {
 		ch = ss.obtainChannel(true)
 	} else {
 		routerOutput := c.broker.register(clientId)
-		ss, ok = newSession(routerOutput, func() {
+		ss, ok = newSession(clientId, routerOutput, func() {
 			c.Lock()
 			defer c.Unlock()
 			delete(c.sessions, clientId)

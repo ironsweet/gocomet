@@ -1,6 +1,7 @@
 package gocomet
 
 import (
+	"runtime"
 	"testing"
 )
 
@@ -22,13 +23,12 @@ func TestMessageBroadcast(t *testing.T) {
 	b := newBroker()
 	ch := b.register("client")
 	var msg *Message
-	go func() {
-		msg = <-ch
-	}()
+	go func() { msg = <-ch }()
 	b.broadcast("/foo/bar", "hello")
 	assert(len(ch) == 0, t, "nothing should happens")
 	b.subscribe("client", "/foo/bar")
 	b.broadcast("/foo/bar", "hello again")
+	runtime.Gosched()
 	assert(msg.data == "hello again", t, "failed to receive message")
 }
 
@@ -37,11 +37,10 @@ func TestChannelUnsubscribe(t *testing.T) {
 	clientId := "client"
 	ch := b.register(clientId)
 	var msg *Message
-	go func() {
-		msg = <-ch
-	}()
+	go func() { msg = <-ch }()
 	b.subscribe(clientId, "/foo/bar")
 	b.broadcast("/foo/bar", "hello")
+	runtime.Gosched()
 	assert(msg.data == "hello", t, "failed to receive message")
 	b.unsubscribe(clientId, "/foo/bar")
 	b.broadcast("/foo/bar", "hello again")
