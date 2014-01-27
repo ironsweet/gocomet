@@ -2,6 +2,7 @@ package gocomet
 
 import (
 	"github.com/serverhorror/uuid"
+	"strings"
 	"sync"
 )
 
@@ -76,6 +77,9 @@ func (c *Server) disconnect(clientId string) (ch chan *Message, ok bool) {
 }
 
 func (c *Server) subscribe(clientId, subscription string) (ch chan *Message, ok bool) {
+	if strings.Contains(subscription, ",") {
+		panic("not supported yet")
+	}
 	if ok = c.names.touch(clientId); !ok {
 		return
 	}
