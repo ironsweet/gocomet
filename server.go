@@ -2,6 +2,7 @@ package gocomet
 
 import (
 	"github.com/serverhorror/uuid"
+	"log"
 	"strings"
 	"sync"
 )
@@ -30,8 +31,18 @@ func newServer() *Server {
 	}
 }
 
-func (c *Server) handshake() (string, error) {
-	return c.names.get()
+func (c *Server) handshake() (clientId string, err error) {
+	clientId, err = c.names.get()
+	c.Lock()
+	defer c.Unlock()
+
+	routerOutput := c.broker.register(clientId)
+	c.sessions[clientId] = newSession(clientId, routerOutput, func() {
+		c.Lock()
+		defer c.Unlock()
+		delete(c.sessions, clientId)
+	})
+	return
 }
 
 /*
@@ -41,21 +52,11 @@ func (c *Server) connect(clientId string) (ch chan *Message, ok bool) {
 	if ok = c.names.touch(clientId); !ok {
 		return
 	}
-	c.Lock()
-	defer c.Unlock()
+	c.RLock()
+	defer c.RUnlock()
 
 	var ss *Session
-	ss, ok = c.sessions[clientId]
-	if ok {
-		ch = ss.obtainChannel(true)
-	} else {
-		routerOutput := c.broker.register(clientId)
-		ss, ok = newSession(clientId, routerOutput, func() {
-			c.Lock()
-			defer c.Unlock()
-			delete(c.sessions, clientId)
-		}), true
-		c.sessions[clientId] = ss
+	if ss, ok = c.sessions[clientId]; ok {
 		ch = ss.obtainChannel(true)
 	}
 	return
@@ -115,6 +116,7 @@ func (c *Server) publish(clientId, channel, data string) (ch chan *Message, ok b
 	if ok = c.names.touch(clientId); !ok {
 		return
 	}
+	log.Printf("[%8.8v]Publish '%v' at '%v'", clientId, data, channel)
 	c.broker.broadcast(channel, data)
 	c.RLock()
 	defer c.RUnlock()

@@ -118,57 +118,42 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 					}
 				} else {
 					log.Printf("[%8.8v]Received message: %v", id, msg)
-					if msg == nil {
-						panic("message should not be nil")
-					}
 					output <- msg
 				}
+
 			case isConnect := <-channelReq:
 				if output == nil {
 					// no existing active channel
 					// try queueing the messages by using a large size channel
-					ch := make(chan *Message, mailbox.Len())
-					if mailbox.Len() > 0 {
-						for e := mailbox.Front(); e != nil; e = e.Next() {
-							if e.Value == nil {
-								panic("message should not be nil")
-							}
-							ch <- e.Value.(*Message)
-						}
-						mailbox.Init()
-					}
-					channelResp <- ch
+					ch := convertMailboxToChannel(mailbox)
 					if isConnect {
 						output = ch
+					} else {
+						close(ch)
 					}
+					channelResp <- ch
 				} else {
 					// active connect channel already exists
 					channelResp <- closedChannel
 				}
+
 			case msg := <-channelTimeout:
 				if msg != nil {
 					mailbox.PushFront(msg)
 				}
 				close(output)
 				output = nil
+
 			case <-channelClose:
 				isRunning = false
-				close(output)
-				output = nil
-				if mailbox.Len() > 0 {
-					ch := make(chan *Message)
-					go func() {
-						for e := mailbox.Front(); e != nil; e = e.Next() {
-							if e.Value == nil {
-								panic("message should not be nil")
-							}
-							ch <- e.Value.(*Message)
-						}
-					}()
-					channelResp <- ch
-				} else {
-					channelResp <- closedChannel
+				if output != nil {
+					close(output)
 				}
+				output = nil
+				ch := convertMailboxToChannel(mailbox)
+				close(ch)
+				channelResp <- ch
+
 			case <-time.After(MAX_SESSION_IDEL):
 				isRunning = false
 				close(output)
@@ -185,6 +170,21 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 		channelTimeout: channelTimeout,
 		channelClose:   channelClose,
 	}
+}
+
+func convertMailboxToChannel(mailbox *list.List) chan *Message {
+	if mailbox.Len() == 0 {
+		return make(chan *Message)
+	}
+	ch := make(chan *Message, mailbox.Len())
+	for e := mailbox.Front(); e != nil; e = e.Next() {
+		if e.Value == nil {
+			panic("message should not be nil")
+		}
+		ch <- e.Value.(*Message)
+	}
+	mailbox.Init()
+	return ch
 }
 
 func (ss *Session) obtainChannel(isConnect bool) chan *Message {

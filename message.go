@@ -121,9 +121,11 @@ guarrantee message delivery though.
 */
 func (b *Broker) broadcast(channel, msg string) {
 	targets := b.router.run(channel)
-	log.Printf("[Broker]Broadcast to %v clients.", len(targets))
-	for _, c := range targets {
-		b.send(c, &Message{channel, msg})
+	if len(targets) > 0 {
+		log.Printf("[Broker]Broadcast to %v", targets)
+		for _, c := range targets {
+			b.send(c, &Message{channel, msg})
+		}
 	}
 }
 
@@ -131,5 +133,6 @@ func (b *Broker) send(client string, msg *Message) {
 	b.RLock()
 	ch := b.clients[client]
 	b.RUnlock()
+	log.Printf("[%8.8v]Receiving message: %v", client, msg)
 	ch <- msg
 }
