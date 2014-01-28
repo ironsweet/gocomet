@@ -71,7 +71,7 @@ const (
 )
 
 type Instance struct {
-	server *Server
+	*Server
 }
 
 /*
@@ -79,7 +79,7 @@ Create a simple cometd instace.
 */
 func New() *Instance {
 	return &Instance{
-		server: newServer(),
+		Server: newServer(),
 	}
 }
 
@@ -130,7 +130,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Interval:  DEFAULT_INTERVAL,
 				Timeout:   1000 * int64(MAX_SESSION_IDEL.Seconds()),
 			}
-			if clientId, err := inst.server.handshake(); err == nil {
+			if clientId, err := inst.handshake(); err == nil {
 				response.Version = VERSION
 				response.SupportedConnectionTypes = []string{"long-polling"}
 				response.ClientId = clientId
@@ -143,7 +143,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.Channel = "/meta/connect"
 			response.ClientId = message.ClientId
 			response.Id = message.Id
-			if events, ok = inst.server.connect(message.ClientId); ok && waiting == nil {
+			if events, ok = inst.connect(message.ClientId); ok && waiting == nil {
 				// only one connect message is allowed
 				clientId = message.ClientId
 				waiting = events
@@ -165,7 +165,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.Channel = "/meta/disconnect"
 			response.ClientId = message.ClientId
 			response.Id = message.Id
-			if events, ok = inst.server.disconnect(message.ClientId); ok {
+			if events, ok = inst.disconnect(message.ClientId); ok {
 				allEvents = append(allEvents, events)
 				response.Successful = true
 			}
@@ -175,7 +175,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.ClientId = message.ClientId
 			response.Subscription = message.Subscription
 			response.Id = message.Id
-			if events, ok = inst.server.subscribe(message.ClientId, message.Subscription); ok {
+			if events, ok = inst.subscribe(message.ClientId, message.Subscription); ok {
 				log.Printf("[%8.8v]success.", message.ClientId)
 				allEvents = append(allEvents, events)
 				response.Successful = true
@@ -187,7 +187,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.ClientId = message.ClientId
 			response.Subscription = message.Subscription
 			response.Id = message.Id
-			if events, ok = inst.server.unsubscribe(message.ClientId, message.Subscription); ok {
+			if events, ok = inst.unsubscribe(message.ClientId, message.Subscription); ok {
 				allEvents = append(allEvents, events)
 				response.Successful = true
 			}
@@ -197,9 +197,9 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				response.Id = message.Id
 				if message.ClientId == "" { // whisper
 					log.Printf("Whispering '%v' to '%v'...", message.Data, message.Channel)
-					inst.server.whisper(message.Channel, message.Data)
+					inst.whisper(message.Channel, message.Data)
 					response.Successful = true
-				} else if events, ok = inst.server.publish(message.ClientId, message.Channel, message.Data); ok {
+				} else if events, ok = inst.publish(message.ClientId, message.Channel, message.Data); ok {
 					allEvents = append(allEvents, events)
 					response.Successful = true
 				}
@@ -225,7 +225,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			events = append(events, event)
 		case <-time.After(remaining):
 			// timeout and should return immediately
-			inst.server.closeAndReturn(clientId, nil)
+			inst.closeAndReturn(clientId, nil)
 			waiting = nil
 		}
 
@@ -238,11 +238,11 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				events = append(events, event)
 			case <-time.After(1 * time.Second):
 				// collect enough event messages
-				inst.server.closeAndReturn(clientId, nil)
+				inst.closeAndReturn(clientId, nil)
 				waiting = nil
 			case <-time.After(remaining):
 				// timeout and should return immediately
-				inst.server.closeAndReturn(clientId, nil)
+				inst.closeAndReturn(clientId, nil)
 				waiting = nil
 			}
 		}

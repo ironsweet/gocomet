@@ -80,6 +80,8 @@ const MAX_SESSION_IDEL time.Duration = 1 * time.Minute
 const MAILBOX_SIZE = 1000
 
 type Session struct {
+	ID             string
+	input          chan *Message
 	channelReq     chan bool
 	channelResp    chan chan *Message
 	channelTimeout chan *Message
@@ -165,6 +167,8 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 	}()
 
 	return &Session{
+		ID:             id,
+		input:          input,
 		channelReq:     channelReq,
 		channelResp:    channelResp,
 		channelTimeout: channelTimeout,
@@ -185,6 +189,13 @@ func convertMailboxToChannel(mailbox *list.List) chan *Message {
 	}
 	mailbox.Init()
 	return ch
+}
+
+/*
+Deliver message directly to this session.
+*/
+func (ss *Session) Deliver(channel, data string) {
+	ss.input <- &Message{channel: channel, data: data}
 }
 
 func (ss *Session) obtainChannel(isConnect bool) chan *Message {
