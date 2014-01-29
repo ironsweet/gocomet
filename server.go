@@ -147,3 +147,15 @@ func (c *Server) closeAndReturn(clientId string, msg *Message) {
 		ss.channelTimeout <- msg
 	}
 }
+
+/*
+Send message directly to target client.
+*/
+func (c *Server) Send(toClientId, channel, data string) {
+	c.RLock()
+	defer c.Unlock()
+
+	if ss, ok := c.sessions[toClientId]; ok {
+		ss.input <- &Message{channel: channel, data: data}
+	}
+}

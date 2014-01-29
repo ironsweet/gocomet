@@ -72,6 +72,7 @@ const (
 
 type Instance struct {
 	*Server
+	services map[string]func(session *Session, message *MetaMessage)
 }
 
 /*
@@ -79,7 +80,8 @@ Create a simple cometd instace.
 */
 func New() *Instance {
 	return &Instance{
-		Server: newServer(),
+		Server:   newServer(),
+		services: make(map[string]func(session *Session, message *MetaMessage)),
 	}
 }
 
@@ -266,4 +268,15 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	data, _ = json.Marshal(responses[len(responses)-1])
 	fmt.Fprintf(w, "%s]", data)
 	log.Printf("[%8.8v]Request is processd.", clientId)
+}
+
+/*
+Add new handler to listen and process messages sent to /service/**
+channel. It doesn't check for conflict and will override existing one
+with the same name. The returned Instance object allows flow style
+configuration.
+*/
+func (c *Instance) AddService(channel string, handler func(session *Session, message *MetaMessage)) *Instance {
+	c.services[channel] = handler
+	return c
 }

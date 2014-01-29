@@ -79,13 +79,16 @@ const MAX_SESSION_IDEL time.Duration = 1 * time.Minute
 // last MAILBOX_SIZE messages are kept.
 const MAILBOX_SIZE = 1000
 
+type SessionRemovalListener func(session *Session, timeout bool)
+
 type Session struct {
-	ID             string
-	input          chan *Message
-	channelReq     chan bool
-	channelResp    chan chan *Message
-	channelTimeout chan *Message
-	channelClose   chan bool
+	ID              string
+	input           chan *Message
+	channelReq      chan bool
+	channelResp     chan chan *Message
+	channelTimeout  chan *Message
+	channelClose    chan bool
+	channelListener chan SessionRemovalListener
 }
 
 var closedChannel chan *Message = func() chan *Message {
@@ -99,6 +102,7 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 	channelResp := make(chan chan *Message)
 	channelTimeout := make(chan *Message)
 	channelClose := make(chan bool)
+	channelListener := make(chan SessionRemovalListener)
 
 	go func() {
 		var mailbox *list.List = list.New()
@@ -108,8 +112,9 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 			// Session's major responsibilities are:
 			// 1. transimit the message from broker to clients;
 			// 2. respond to client's channel request;
-			// 3. close downstream channel and push back message; and
-			// 4. auto-disconnect those clients that exceed max idel time.
+			// 3. manage listeners on session destroy;
+			// 4. close downstream channel, destroy session; and
+			// 5. auto-disconnect those clients that exceed max idel time.
 			select {
 			case msg := <-input:
 				if output == nil { // no downstream channel
@@ -167,12 +172,13 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 	}()
 
 	return &Session{
-		ID:             id,
-		input:          input,
-		channelReq:     channelReq,
-		channelResp:    channelResp,
-		channelTimeout: channelTimeout,
-		channelClose:   channelClose,
+		ID:              id,
+		input:           input,
+		channelReq:      channelReq,
+		channelResp:     channelResp,
+		channelTimeout:  channelTimeout,
+		channelClose:    channelClose,
+		channelListener: channelListener,
 	}
 }
 
@@ -192,10 +198,10 @@ func convertMailboxToChannel(mailbox *list.List) chan *Message {
 }
 
 /*
-Deliver message directly to this session.
+Attach a listener for session destroy event.
 */
-func (ss *Session) Deliver(channel, data string) {
-	ss.input <- &Message{channel: channel, data: data}
+func (ss *Session) ListenOnRemoval(listener func(session *Session, timeout bool)) {
+	ss.channelListener <- listener
 }
 
 func (ss *Session) obtainChannel(isConnect bool) chan *Message {
