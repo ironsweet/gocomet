@@ -21,9 +21,9 @@ func TestConnect(t *testing.T) {
 	log.Println("Testing connect...")
 	s := newServer()
 	c1, _ := s.handshake()
-	_, ok := s.connect(c1)
+	_, _, ok := s.connect(c1)
 	assert(ok, t, "failed to connect simple client")
-	_, ok = s.connect("invalid")
+	_, _, ok = s.connect("invalid")
 	assert(!ok, t, "invalid client should not connect")
 }
 
@@ -38,7 +38,7 @@ func TestDisconnect(t *testing.T) {
 	assert(ok, t, "failed to disconnect the client")
 
 	c2, _ := s.handshake()
-	ch, _ := s.connect(c2)
+	ch, _, _ := s.connect(c2)
 	_, ok = s.disconnect(c2)
 	assert(ok, t, "failed to disconnect a connected client")
 
@@ -89,7 +89,7 @@ func TestPublish(t *testing.T) {
 	assert(ok, t, "failed to publish w/o connect")
 
 	c2, _ := s.handshake()
-	ch, ok := s.connect(c2)
+	ch, _, ok := s.connect(c2)
 	var msg string
 	go func() { msg = (<-ch).data }()
 	s.subscribe(c2, "/foo/bar")
@@ -104,7 +104,7 @@ func TestWhisper(t *testing.T) {
 	s.whisper("/foo/bar", "ping")
 
 	c1, _ := s.handshake()
-	ch, _ := s.connect(c1)
+	ch, _, _ := s.connect(c1)
 	var msg string
 	go func() { msg = (<-ch).data }()
 	s.subscribe(c1, "/foo/bar")
@@ -117,7 +117,7 @@ func TestTwoConnectionRestrict(t *testing.T) {
 	log.Println("Testing 2 connections restrict...")
 	s := newServer()
 	c1, _ := s.handshake()
-	ch1, _ := s.connect(c1)
+	ch1, timeout, _ := s.connect(c1)
 	var msg string
 	go func() { msg = (<-ch1).data }()
 	ch2, _ := s.subscribe(c1, "/foo/bar")
@@ -130,21 +130,12 @@ func TestTwoConnectionRestrict(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	assert(msg == "ping", t, "failed to receive message from previous active connect")
 
-	s.closeAndReturn(c1, nil)
+	timeout <- true
 	_, ok = <-ch1
 	assert(!ok, t, "active channel should be closed after disconnect")
 
 	s.subscribe(c1, "/foo/bar/2")
-	// ch3, _ := s.subscribe(c1, "/foo/bar/2")
-	// msg = ""
-	// go func() { msg = (<-ch3).data }()
-	// s.publish(c2, "/foo/bar", "ping")
-	// runtime.Gosched()
-	// assert(msg == "ping", t, "failed to receive message from new active channel")
-
-	ch4, _ := s.connect(c1)
-	// _, ok = <-ch3
-	// assert(!ok, t, "new connect overrides other active channel")
+	ch4, _, _ := s.connect(c1)
 	msg = ""
 	go func() { msg = (<-ch4).data }()
 	s.publish(c2, "/foo/bar/2", "ping")

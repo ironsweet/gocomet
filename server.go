@@ -48,7 +48,7 @@ func (c *Server) handshake() (clientId string, err error) {
 /*
 Connect may supercede other non-connect waiting channels.
 */
-func (c *Server) connect(clientId string) (ch chan *Message, ok bool) {
+func (c *Server) connect(clientId string) (ch chan *Message, stop chan bool, ok bool) {
 	if ok = c.names.touch(clientId); !ok {
 		return
 	}
@@ -57,7 +57,7 @@ func (c *Server) connect(clientId string) (ch chan *Message, ok bool) {
 
 	var ss *Session
 	if ss, ok = c.sessions[clientId]; ok {
-		ch = ss.obtainChannel(true)
+		ch, stop = ss.obtainChannel(true)
 	}
 	return
 }
@@ -90,7 +90,7 @@ func (c *Server) subscribe(clientId, subscription string) (ch chan *Message, ok 
 
 	var ss *Session
 	if ss, ok = c.sessions[clientId]; ok {
-		ch = ss.obtainChannel(false)
+		ch, _ = ss.obtainChannel(false)
 	}
 	return
 }
@@ -107,7 +107,7 @@ func (c *Server) unsubscribe(clientId, subscription string) (ch chan *Message, o
 
 	var ss *Session
 	if ss, ok = c.sessions[clientId]; ok {
-		ch = ss.obtainChannel(false)
+		ch, _ = ss.obtainChannel(false)
 	}
 	return
 }
@@ -123,7 +123,7 @@ func (c *Server) publish(clientId, channel, data string) (ch chan *Message, ok b
 
 	var ss *Session
 	if ss, ok = c.sessions[clientId]; ok {
-		ch = ss.obtainChannel(false)
+		ch, _ = ss.obtainChannel(false)
 	}
 	return
 }
@@ -133,19 +133,6 @@ Publish message without client ID.
 */
 func (c *Server) whisper(channel, data string) {
 	c.broker.broadcast(channel, data)
-}
-
-/*
-Channel maybe closed if no message is received in given time interval,
-or there is any error sending the message to the client.
-*/
-func (c *Server) closeAndReturn(clientId string, msg *Message) {
-	c.RLock()
-	defer c.RUnlock()
-
-	if ss, ok := c.sessions[clientId]; ok {
-		ss.channelTimeout <- msg
-	}
 }
 
 /*

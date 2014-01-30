@@ -86,7 +86,7 @@ type Session struct {
 	input           chan *Message
 	channelReq      chan bool
 	channelResp     chan chan *Message
-	channelTimeout  chan *Message
+	channelTimeout  chan bool
 	channelClose    chan bool
 	channelListener chan SessionRemovalListener
 }
@@ -100,7 +100,7 @@ var closedChannel chan *Message = func() chan *Message {
 func newSession(id string, input chan *Message, cleanup func()) *Session {
 	channelReq := make(chan bool)
 	channelResp := make(chan chan *Message)
-	channelTimeout := make(chan *Message)
+	channelTimeout := make(chan bool)
 	channelClose := make(chan bool)
 	channelListener := make(chan SessionRemovalListener)
 
@@ -113,8 +113,9 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 			// 1. transimit the message from broker to clients;
 			// 2. respond to client's channel request;
 			// 3. manage listeners on session destroy;
-			// 4. close downstream channel, destroy session; and
-			// 5. auto-disconnect those clients that exceed max idel time.
+			// 4. close downstream channel;
+			// 6. shutdown and destroy session; and
+			// 7. auto-disconnect those clients that exceed max idel time.
 			select {
 			case msg := <-input:
 				if output == nil { // no downstream channel
@@ -144,19 +145,18 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 					channelResp <- closedChannel
 				}
 
-			case msg := <-channelTimeout:
-				if msg != nil {
-					mailbox.PushFront(msg)
+			case <-channelTimeout:
+				if output != nil {
+					close(output)
+					output = nil
 				}
-				close(output)
-				output = nil
 
 			case <-channelClose:
 				isRunning = false
 				if output != nil {
 					close(output)
+					output = nil
 				}
-				output = nil
 				ch := convertMailboxToChannel(mailbox)
 				close(ch)
 				channelResp <- ch
@@ -204,9 +204,9 @@ func (ss *Session) ListenOnRemoval(listener func(session *Session, timeout bool)
 	ss.channelListener <- listener
 }
 
-func (ss *Session) obtainChannel(isConnect bool) chan *Message {
+func (ss *Session) obtainChannel(isConnect bool) (ch chan *Message, stop chan bool) {
 	ss.channelReq <- isConnect
-	return <-ss.channelResp
+	return <-ss.channelResp, ss.channelTimeout
 }
 
 func (ss *Session) close() chan *Message {

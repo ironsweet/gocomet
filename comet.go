@@ -117,7 +117,8 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var responses []*MetaMessage
 	var allEvents []chan *Message
 	var waiting chan *Message
-	var clientId string // client ID for connect message
+	var timeout chan bool // notify uptream chanel to stop
+	var clientId string   // client ID for connect message
 	for _, message := range messages {
 		var events chan *Message
 		var ok bool
@@ -145,10 +146,11 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.Channel = "/meta/connect"
 			response.ClientId = message.ClientId
 			response.Id = message.Id
-			if events, ok = inst.connect(message.ClientId); ok && waiting == nil {
+			var ch chan bool
+			if events, ch, ok = inst.connect(message.ClientId); ok && waiting == nil {
 				// only one connect message is allowed
 				clientId = message.ClientId
-				waiting = events
+				waiting, timeout = events, ch
 				response.Successful = true
 				response.Advice = &Advice{
 					Reconnect: "retry",
@@ -227,27 +229,36 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			events = append(events, event)
 		case <-time.After(remaining):
 			// timeout and should return immediately
-			inst.closeAndReturn(clientId, nil)
-			waiting = nil
+			timeout <- true
 		}
 
 		// wait for another second to see if other events come
-		for waiting != nil {
-			remaining = start.Add(MAX_SESSION_IDEL / 2).Sub(time.Now())
-			log.Printf("[%8.8v]Listening to %v for %v seconds...", clientId, waiting, remaining.Seconds())
-			select {
-			case event = <-waiting:
-				events = append(events, event)
-			case <-time.After(1 * time.Second):
-				// collect enough event messages
-				inst.closeAndReturn(clientId, nil)
-				waiting = nil
-			case <-time.After(remaining):
-				// timeout and should return immediately
-				inst.closeAndReturn(clientId, nil)
-				waiting = nil
+		// otherwise, notify the upstream channel to stop sending more
+		// but no more than half of the max idle time
+		var renew = make(chan bool)
+		go func() {
+			var isWaiting = true
+			for isWaiting {
+				remaining := start.Add(MAX_SESSION_IDEL / 2).Sub(time.Now())
+				log.Printf("[%8.8v]Listening to %v for %v seconds...", clientId, waiting, remaining.Seconds())
+				select {
+				case <-time.After(remaining):
+					timeout <- true
+					isWaiting = false
+				case <-time.After(1 * time.Second):
+					timeout <- true
+					isWaiting = false
+				case <-renew:
+					// do nothing
+				}
 			}
+		}()
+
+		for event := range waiting {
+			events = append(events, event)
+			renew <- true
 		}
+		log.Printf("[%8.8v]%v events collected.", clientId, len(events))
 	}
 
 	fmt.Fprintf(w, "[")
