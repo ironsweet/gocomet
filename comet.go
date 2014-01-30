@@ -223,21 +223,24 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var event *Message
 		var remaining = start.Add(MAX_SESSION_IDEL / 2).Sub(time.Now())
 		log.Printf("[%8.8v]Listening to %v for %v seconds...", clientId, waiting, remaining.Seconds())
+		var isDone = false
 		// wait for at least one event first
 		select {
 		case event = <-waiting:
-			events = append(events, event)
+			if event != nil { // waiting channel is closed already?
+				events = append(events, event)
+			}
 		case <-time.After(remaining):
 			// timeout and should return immediately
 			timeout <- true
+			isDone = true
 		}
 
 		// wait for another second to see if other events come
 		// otherwise, notify the upstream channel to stop sending more
 		// but no more than half of the max idle time
 		var renew = make(chan bool)
-		go func() {
-			var isWaiting = true
+		go func(isWaiting bool) {
 			for isWaiting {
 				remaining := start.Add(MAX_SESSION_IDEL / 2).Sub(time.Now())
 				log.Printf("[%8.8v]Listening to %v for %v seconds...", clientId, waiting, remaining.Seconds())
@@ -252,11 +255,13 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					// do nothing
 				}
 			}
-		}()
+		}(!isDone)
 
 		for event := range waiting {
 			events = append(events, event)
-			renew <- true
+			if !isDone {
+				renew <- true
+			}
 		}
 		log.Printf("[%8.8v]%v events collected.", clientId, len(events))
 	}
