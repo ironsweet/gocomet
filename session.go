@@ -163,8 +163,10 @@ func newSession(id string, input chan *Message, cleanup func()) *Session {
 
 			case <-time.After(MAX_SESSION_IDEL):
 				isRunning = false
-				close(output)
-				output = nil
+				if output != nil {
+					close(output)
+					output = nil
+				}
 			}
 		}
 

@@ -11,20 +11,20 @@ import (
 )
 
 type MetaMessage struct {
-	Channel                  string      `json:"channel"`
-	Version                  string      `json:"version,omitempty"`
-	MinimumVersion           string      `json:"minimumVersion,omitempty"`
-	SupportedConnectionTypes []string    `json:"supportedConnectionTypes,omitempty"`
-	ClientId                 string      `json:"clientId,omitempty"`
-	Advice                   *Advice     `json:"advice,omitempty"`
-	ConnectionType           string      `json:"connectionType,omitempty"`
-	Id                       string      `json:"id,omitempty"`
-	Timestamp                string      `json:"timestamp,omitempty"`
-	Data                     string      `json:"data,omitempty"`
-	Successful               bool        `json:"successful"`
-	Subscription             string      `json:"subscription,omitempty"`
-	Error                    string      `json:"error,omitempty"`
-	Extension                interface{} `json:"ext,omitempty"`
+	Channel                  string          `json:"channel"`
+	Version                  string          `json:"version,omitempty"`
+	MinimumVersion           string          `json:"minimumVersion,omitempty"`
+	SupportedConnectionTypes []string        `json:"supportedConnectionTypes,omitempty"`
+	ClientId                 string          `json:"clientId,omitempty"`
+	Advice                   *Advice         `json:"advice,omitempty"`
+	ConnectionType           string          `json:"connectionType,omitempty"`
+	Id                       string          `json:"id,omitempty"`
+	Timestamp                string          `json:"timestamp,omitempty"`
+	Data                     json.RawMessage `json:"data,omitempty"`
+	Successful               bool            `json:"successful"`
+	Subscription             string          `json:"subscription,omitempty"`
+	Error                    string          `json:"error,omitempty"`
+	Extension                interface{}     `json:"ext,omitempty"`
 }
 
 type EventMessage struct {
@@ -50,8 +50,8 @@ func (mm *MetaMessage) String() string {
 		return fmt.Sprintf("Unsubscribe:%v:%v", mm.ClientId, mm.Subscription)
 	default:
 		switch {
-		case mm.Data != "":
-			return fmt.Sprintf("%v:%v:%v", mm.Channel, mm.ClientId, mm.Data)
+		case mm.Data != nil:
+			return fmt.Sprintf("%v:%v:%v", mm.Channel, mm.ClientId, string(mm.Data))
 		default:
 			return fmt.Sprintf("Invalid:%v", mm)
 		}
@@ -196,14 +196,14 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				response.Successful = true
 			}
 		default:
-			if message.Data != "" { // publish
+			if message.Data != nil { // publish
 				response.Channel = message.Channel
 				response.Id = message.Id
 				if message.ClientId == "" { // whisper
 					log.Printf("Whispering '%v' to '%v'...", message.Data, message.Channel)
-					inst.whisper(message.Channel, message.Data)
+					inst.whisper(message.Channel, string(message.Data))
 					response.Successful = true
-				} else if events, ok = inst.publish(message.ClientId, message.Channel, message.Data); ok {
+				} else if events, ok = inst.publish(message.ClientId, message.Channel, string(message.Data)); ok {
 					allEvents = append(allEvents, events)
 					response.Successful = true
 				}
