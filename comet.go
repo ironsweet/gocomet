@@ -222,7 +222,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if waiting != nil { // it's a connect message
 		var event *Message
 		var remaining = start.Add(MAX_SESSION_IDEL / 2).Sub(time.Now())
-		log.Printf("[%8.8v]Listening for %.0v seconds...", clientId, remaining.Seconds())
+		log.Printf("[%8.8v]Listening for %v seconds...", clientId, remaining.Seconds())
 		var isDone = false
 		// wait for at least one event first
 		select {
@@ -243,7 +243,7 @@ func (inst *Instance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		go func(isWaiting bool) {
 			for isWaiting {
 				remaining := start.Add(MAX_SESSION_IDEL / 2).Sub(time.Now())
-				log.Printf("[%8.8v]Wait for %.0v more seconds...", clientId, remaining.Seconds())
+				log.Printf("[%8.8v]Wait for %v more seconds...", clientId, remaining.Seconds())
 				select {
 				case <-time.After(remaining):
 					timeout <- true

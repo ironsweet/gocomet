@@ -138,11 +138,14 @@ func (c *Server) whisper(channel, data string) {
 /*
 Send message directly to target client.
 */
-func (c *Server) Send(toClientId, channel, data string) {
+func (c *Server) Send(toClientId, channel, data string) bool {
 	c.RLock()
 	defer c.Unlock()
 
 	if ss, ok := c.sessions[toClientId]; ok {
 		ss.input <- &Message{channel: channel, data: data}
+		return true
+	} else {
+		return false
 	}
 }
